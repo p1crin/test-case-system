@@ -1,0 +1,80 @@
+@startuml ログインシーケンス図
+title テストケース管理システム - ログインシーケンス
+
+actor ユーザー as User
+participant "ブラウザ" as Browser
+participant "LoginPage\n(Client Component)" as LoginPage
+participant "NextAuth.js\nClient" as NextAuthClient
+participant "API:\n/api/auth/[...nextauth]" as AuthAPI
+participant "Database\n(PostgreSQL)" as DB
+
+== ログイン画面表示 ==
+User -> Browser: ログイン画面アクセス\n(http://localhost:3000/login)
+Browser -> LoginPage: ページリクエスト
+activate LoginPage
+
+LoginPage -> NextAuthClient: useSession()
+activate NextAuthClient
+NextAuthClient --> LoginPage: セッション状態確認
+deactivate NextAuthClient
+
+alt 既にログイン済み
+    LoginPage -> Browser: /test-groupsにリダイレクト
+    Browser --> User: テストグループ一覧画面表示
+else 未ログイン
+    LoginPage --> Browser: ログインフォーム表示
+    deactivate LoginPage
+    Browser --> User: メールアドレス・パスワード入力フォーム
+end
+
+== ログイン処理 ==
+User -> Browser: メールアドレス・パスワード入力\n「ログイン」ボタンクリック
+Browser -> LoginPage: フォーム送信
+activate LoginPage
+
+LoginPage -> NextAuthClient: signIn('credentials', { email, password })
+activate NextAuthClient
+
+NextAuthClient -> AuthAPI: POST /api/auth/callback/credentials
+activate AuthAPI
+note right of AuthAPI
+  リクエストボディ:
+  {
+    "email": "admin@example.com",
+    "password": "admin123"
+  }
+end note
+
+AuthAPI -> DB: ユーザー検索\nSELECT * FROM mt_users\nWHERE email = $1 AND is_deleted = FALSE
+activate DB
+DB --> AuthAPI: ユーザー情報\n(id, email, user_role, password_hash)
+deactivate DB
+
+AuthAPI -> AuthAPI: パスワード検証\nbcrypt.compare(password, hash)
+
+alt パスワード一致
+    AuthAPI -> AuthAPI: JWTトークン生成\n(user_id, email, user_role含む)
+    AuthAPI --> NextAuthClient: 200 OK\n{ user: {...}, token: "..." }
+    deactivate AuthAPI
+
+    NextAuthClient -> NextAuthClient: セッション保存\n(JWT in cookie)
+    NextAuthClient --> LoginPage: 認証成功
+    deactivate NextAuthClient
+
+    LoginPage -> Browser: /test-groupsにリダイレクト
+    deactivate LoginPage
+    Browser --> User: テストグループ一覧画面表示
+
+else パスワード不一致
+    AuthAPI --> NextAuthClient: 401 Unauthorized\n{ error: "メールアドレスまたは\nパスワードが正しくありません" }
+    deactivate AuthAPI
+
+    NextAuthClient --> LoginPage: 認証失敗
+    deactivate NextAuthClient
+
+    LoginPage -> Browser: エラーメッセージ表示
+    deactivate LoginPage
+    Browser --> User: "メールアドレスまたは\nパスワードが正しくありません"
+end
+
+@enduml

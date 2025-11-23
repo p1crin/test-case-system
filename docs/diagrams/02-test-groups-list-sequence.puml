@@ -1,0 +1,116 @@
+@startuml テストグループ一覧シーケンス図
+title テストケース管理システム - テストグループ一覧画面
+
+actor ユーザー as User
+participant "ブラウザ" as Browser
+participant "TestGroupsPage\n(Client Component)" as TestGroupsPage
+participant "AuthenticatedLayout" as Layout
+participant "NextAuth.js\nClient" as NextAuthClient
+participant "API:\n/api/test-groups" as TestGroupAPI
+participant "lib/auth.ts" as AuthLib
+participant "Database\n(PostgreSQL)" as DB
+
+== 画面表示 ==
+User -> Browser: テストグループ一覧アクセス\n(/test-groups)
+Browser -> Layout: ページリクエスト
+activate Layout
+
+Layout -> NextAuthClient: useSession()
+activate NextAuthClient
+NextAuthClient -> NextAuthClient: JWTトークン確認
+NextAuthClient --> Layout: セッション情報
+deactivate NextAuthClient
+
+alt セッションなし（未認証）
+    Layout -> Browser: /loginにリダイレクト
+    Browser --> User: ログイン画面表示
+else セッションあり（認証済み）
+    Layout -> TestGroupsPage: ページレンダリング
+    activate TestGroupsPage
+
+    Layout --> Browser: レイアウト表示\n(Header + Sidebar)
+    note right of Browser
+      Header: ユーザー情報表示
+      Sidebar: ナビゲーションメニュー
+      - 管理者の場合「ユーザー管理」表示
+    end note
+end
+
+== データ取得 ==
+TestGroupsPage -> TestGroupAPI: GET /api/test-groups
+activate TestGroupAPI
+note right of TestGroupAPI
+  リクエストヘッダ:
+  Authorization: Bearer <JWT>
+end note
+
+TestGroupAPI -> AuthLib: requireAuth(req)
+activate AuthLib
+AuthLib -> AuthLib: JWTトークン検証
+AuthLib --> TestGroupAPI: ユーザー情報\n(user_id, user_role)
+deactivate AuthLib
+
+TestGroupAPI -> AuthLib: getAccessibleTestGroups(user_id, user_role)
+activate AuthLib
+
+alt user_role = 0 (管理者)
+    AuthLib -> DB: SELECT id FROM tt_test_groups\nWHERE is_deleted = FALSE
+    activate DB
+    DB --> AuthLib: 全テストグループID
+    deactivate DB
+
+else user_role = 1 (テスト管理者)
+    AuthLib -> DB: SELECT DISTINCT tg.id\nFROM tt_test_groups tg\nLEFT JOIN tt_test_group_tags tgt ...\nWHERE created_by = $1 OR ut.user_id = $1
+    activate DB
+    DB --> AuthLib: 作成したグループ+\n割り当てられたグループID
+    deactivate DB
+
+else user_role = 2 (一般)
+    AuthLib -> DB: SELECT DISTINCT test_group_id\nFROM tt_test_group_tags tgt\nJOIN mt_user_tags ut ...\nWHERE ut.user_id = $1
+    activate DB
+    DB --> AuthLib: 割り当てられたグループID
+    deactivate DB
+end
+
+AuthLib --> TestGroupAPI: アクセス可能なグループID配列
+deactivate AuthLib
+
+TestGroupAPI -> DB: SELECT * FROM tt_test_groups\nWHERE id = ANY($1)\nORDER BY created_at DESC
+activate DB
+DB --> TestGroupAPI: テストグループ一覧
+deactivate DB
+
+TestGroupAPI --> TestGroupsPage: 200 OK\n{ testGroups: [...] }
+deactivate TestGroupAPI
+
+TestGroupsPage -> TestGroupsPage: テーブル構築
+note right of TestGroupsPage
+  各行:
+  - ID, OEM, モデル, イベント, 作成日
+  - 操作ボタン: 集計, 編集, テストケース一覧
+end note
+
+TestGroupsPage -> NextAuthClient: useSession()
+activate NextAuthClient
+NextAuthClient --> TestGroupsPage: user_role確認
+deactivate NextAuthClient
+
+alt user_role = 0 または 1 (管理者・テスト管理者)
+    TestGroupsPage -> TestGroupsPage: 「新規登録」ボタン表示
+end
+
+TestGroupsPage --> Browser: テーブル表示
+deactivate TestGroupsPage
+Browser --> User: テストグループ一覧表示
+
+== ユーザー操作（例：集計ボタンクリック） ==
+User -> Browser: 「集計」ボタンクリック
+Browser -> Browser: /test-groups/{groupId}/reportにナビゲート
+Browser --> User: 集計レポート画面へ遷移
+
+== ユーザー操作（例：新規登録ボタンクリック） ==
+User -> Browser: 「新規登録」ボタンクリック
+Browser -> Browser: /test-groups/newにナビゲート
+Browser --> User: テストグループ作成画面へ遷移\n(未実装のためエラー)
+
+@enduml
