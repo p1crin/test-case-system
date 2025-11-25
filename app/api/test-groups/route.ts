@@ -23,6 +23,11 @@ export async function GET(req: NextRequest) {
     const variation = searchParams.get('variation') || '';
     const destination = searchParams.get('destination') || '';
 
+    // Get pagination parameters
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = parseInt(searchParams.get('limit') || '10', 10);
+    const offset = (page - 1) * limit;
+
     // Build dynamic WHERE clause
     let whereConditions = ['id = ANY($1)', 'is_deleted = FALSE'];
     const params: any[] = [accessibleIds];
@@ -60,20 +65,33 @@ export async function GET(req: NextRequest) {
 
     const whereClause = whereConditions.join(' AND ');
 
-    // Fetch test groups
+    // Fetch total count for pagination
+    const countResult = await query<{ count: string | number }>(
+      `SELECT COUNT(*) as count
+       FROM tt_test_groups
+       WHERE ${whereClause}`,
+      params
+    );
+    const totalCount = parseInt(String(countResult.rows[0]?.count || '0'), 10);
+
+    // Fetch test groups with pagination
+    const dataParams = [...params, limit, offset];
+    const limitParamIndex = params.length + 1;
+    const offsetParamIndex = params.length + 2;
     const result = await query<TestGroup>(
       `SELECT id, oem, model, event, variation, destination, specs,
               test_startdate, test_enddate, ng_plan_count, created_by, updated_by,
               created_at, updated_at
        FROM tt_test_groups
        WHERE ${whereClause}
-       ORDER BY created_at DESC`,
-      params
+       ORDER BY created_at DESC
+       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
+      dataParams
     );
 
     const testGroups = getAllRows(result);
 
-    return NextResponse.json({ testGroups });
+    return NextResponse.json({ testGroups, totalCount });
   } catch (error) {
     console.error('GET /api/test-groups error:', error);
 

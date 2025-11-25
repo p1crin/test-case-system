@@ -23,6 +23,11 @@ export default function TestGroupsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+
   // Search fields
   const [searchOem, setSearchOem] = useState('');
   const [searchModel, setSearchModel] = useState('');
@@ -35,7 +40,7 @@ export default function TestGroupsPage() {
     fetchTestGroups();
   }, []);
 
-  const fetchTestGroups = async (oem?: string, model?: string, event?: string, variation?: string, destination?: string) => {
+  const fetchTestGroups = async (oem?: string, model?: string, event?: string, variation?: string, destination?: string, page: number = 1, limit: number = 10) => {
     try {
       const params = new URLSearchParams();
       if (oem) params.append('oem', oem);
@@ -43,9 +48,11 @@ export default function TestGroupsPage() {
       if (event) params.append('event', event);
       if (variation) params.append('variation', variation);
       if (destination) params.append('destination', destination);
+      params.append('page', page.toString());
+      params.append('limit', limit.toString());
 
       const queryString = params.toString();
-      const url = queryString ? `/api/test-groups?${queryString}` : '/api/test-groups';
+      const url = `/api/test-groups?${queryString}`;
 
       const response = await fetch(url);
 
@@ -55,6 +62,7 @@ export default function TestGroupsPage() {
 
       const data = await response.json();
       setTestGroups(data.testGroups || []);
+      setTotalCount(data.totalCount || 0);
     } catch (err) {
       setError('テストグループの取得に失敗しました');
       console.error(err);
@@ -66,9 +74,10 @@ export default function TestGroupsPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setCurrentPage(1);
     setLoading(true);
     setSearching(true);
-    fetchTestGroups(searchOem, searchModel, searchEvent, searchVariation, searchDestination);
+    fetchTestGroups(searchOem, searchModel, searchEvent, searchVariation, searchDestination, 1, pageSize);
   };
 
   const handleClearSearch = () => {
@@ -77,8 +86,9 @@ export default function TestGroupsPage() {
     setSearchEvent('');
     setSearchVariation('');
     setSearchDestination('');
+    setCurrentPage(1);
     setLoading(true);
-    fetchTestGroups();
+    fetchTestGroups(undefined, undefined, undefined, undefined, undefined, 1, pageSize);
   };
 
   const canCreateTestGroup = () => {
@@ -264,6 +274,33 @@ export default function TestGroupsPage() {
                 ))}
               </tbody>
             </table>
+            <div className="bg-white border-t border-gray-200 px-6 py-4 flex justify-between items-center">
+              <span className="text-sm text-gray-600">
+                全 {totalCount} 件 (ページ {currentPage} / {Math.ceil(totalCount / pageSize)})
+              </span>
+              <div className="flex gap-2">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => {
+                    setCurrentPage(prev => prev - 1);
+                    fetchTestGroups(searchOem, searchModel, searchEvent, searchVariation, searchDestination, currentPage - 1, pageSize);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  前へ
+                </button>
+                <button
+                  disabled={currentPage >= Math.ceil(totalCount / pageSize)}
+                  onClick={() => {
+                    setCurrentPage(prev => prev + 1);
+                    fetchTestGroups(searchOem, searchModel, searchEvent, searchVariation, searchDestination, currentPage + 1, pageSize);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  次へ
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
